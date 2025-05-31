@@ -1,0 +1,17 @@
+from kafka import KafkaConsumer
+import json
+import datetime
+
+consumer = KafkaConsumer(
+    'model_output_topic',
+    bootstrap_servers='kafka:9092',
+    value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+)
+
+with open("logs.txt", "a") as f:
+    for msg in consumer:
+        log_entry = {
+            "datetime": datetime.datetime.now().isoformat(),
+            "record": msg.value
+        }
+        f.write(json.dumps(log_entry) + "\n")
