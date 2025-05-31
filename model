@@ -1,0 +1,75 @@
+from kafka import KafkaConsumer, KafkaProducer
+import json
+import time
+import joblib
+import numpy as np
+
+# Загружаем модель и препроцессоры
+model = joblib.load("model.pkl")
+scaler = joblib.load("scaler.pkl")
+encoder = joblib.load("encoder.pkl")
+
+# Kafka: приём предобработанных данных
+consumer = KafkaConsumer(
+    'preprocessed_data_topic',
+    bootstrap_servers='kafka:9092',
+    value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+)
+
+# Kafka: отправка результатов
+producer = KafkaProducer(
+    bootstrap_servers='kafka:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+
+# Предсказание с использованием модели
+def evaluate_risk(data):
+    try:
+        numeric_input = [
+            data['temperature'],
+            data['pressure'],
+            data['vibration'],
+            data['humidity']
+        ]
+        numeric_scaled = scaler.transform([numeric_input])
+
+        equipment_encoded = encoder.transform([[data['equipment']]])
+        features = np.hstack([numeric_scaled, equipment_encoded])
+
+        risk_score = float(model.predict(features)[0])
+
+        if risk_score < 0.2:
+            level = "low"
+        elif risk_score < 0.7:
+            level = "medium"
+        else:
+            level = "high"
+
+        return round(risk_score, 3), level
+
+    except Exception as e:
+        print(f"[!] Ошибка при оценке риска: {e}")
+        return -1.0, "unknown"
+
+# Главный цикл
+for msg in consumer:
+    try:
+        content = msg.value
+        raw_data = content.get("payload", {})  # необработанные данные
+        timestamp_ingest = content.get("timestamp", time.time())
+
+        score, level = evaluate_risk(raw_data)
+
+        result = {
+            "risk_score": score,
+            "risk_level": level,
+            "timestamp_model": time.time(),
+            "timestamp_ingest": timestamp_ingest,
+            "source_payload": raw_data
+        }
+
+        producer.send('model_output_topic', value=result)
+        print(f"[+] Отправлено предсказание: score={score}, level={level}")
+
+    except Exception as e:
+        print(f"[!] Ошибка обработки сообщения: {e}")
