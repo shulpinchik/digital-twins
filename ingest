@@ -1,0 +1,32 @@
+from flask import Flask, request, jsonify
+from kafka import KafkaProducer
+import json
+import logging
+import time
+
+app = Flask(__name__)
+
+producer = KafkaProducer(
+    bootstrap_servers='kafka:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+
+logging.basicConfig(filename='ingest.log', level=logging.INFO)
+
+@app.route('/ingest', methods=['POST'])
+def ingest_data():
+    start_time = time.time()
+    data = request.get_json()
+    if not data:
+        logging.warning("No data received")
+        return jsonify({"error": "No data received"}), 400
+    payload = {
+        "payload": data,
+        "timestamp": start_time
+    }
+    producer.send('raw_data_topic', value=payload)
+    logging.info(f"Ingested at {start_time}: {data}")
+    return jsonify({"status": "Data ingested"})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
