@@ -1,0 +1,15 @@
+from kafka import KafkaConsumer
+from pymongo import MongoClient
+import json
+
+consumer = KafkaConsumer(
+    'model_output_topic',
+    bootstrap_servers='kafka:9092',
+    value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+)
+
+client = MongoClient("mongodb://mongo:27017")
+db = client.dtwins
+
+for msg in consumer:
+    db.predictions.insert_one(msg.value)
